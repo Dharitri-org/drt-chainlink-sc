@@ -100,7 +100,7 @@ Input:
   "data": {
     "value": "15051",
     "data": {},
-    "sc_address": "moa1...",
+    "sc_address": "erd1...",
     "function": "submit_endpoint",
     "round_id": "145"
   }
@@ -208,7 +208,7 @@ examples [here](https://github.com/DharitriNetwork/sc-chainlink-rs/tree/master/d
 
 In order to execute the price feed job, one needs to create a bridge for that endpoint and, a job specification
 
-For example one can create a bridge with the name `erd-price-job` and URL `http://<host>/price-job`. A job specification
+For example one can create a bridge with the name `moa-price-job` and URL `http://<host>/price-job`. A job specification
 for this bridge can contain a cron initiator, which executes every 10 minutes and, a list of tasks, in this case the
 previously created bridge.
 
@@ -224,7 +224,7 @@ previously created bridge.
   ],
   "tasks": [
     {
-      "type": "erd-price-job",
+      "type": "moa-price-job",
       "confirmations": null,
       "params": {}
     }

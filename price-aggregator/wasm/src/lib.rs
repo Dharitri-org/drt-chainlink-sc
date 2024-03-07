@@ -7,21 +7,24 @@
 dharitri_wasm_node::wasm_endpoints! {
     price_aggregator
     (
+        addOracles
         decimals
-        deposit
-        getBalance
         getOracles
+        isPaused
         latestPriceFeed
         latestPriceFeedOptional
         latestRoundData
-        myBalance
-        payment_token
-        query_payment_amount
+        pause
+        removeOracles
         setSubmissionCount
+        slashMember
+        stake
         submission_count
         submit
         submitBatch
-        withdraw
+        unpause
+        unstake
+        voteSlashMember
     )
 }
 

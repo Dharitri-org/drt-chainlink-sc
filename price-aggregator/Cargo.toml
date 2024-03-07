@@ -9,10 +9,13 @@ publish = false
 path = "src/lib.rs"
 
 [dependencies.dharitri-wasm]
-version = "0.9.8"
+version = "0.10.2"
+
+[dependencies.dharitri-wasm-modules]
+version = "0.10.2"
 
 [dependencies]
 arrayvec = { version = "0.7.1", default-features = false }
 
 [dev-dependencies.dharitri-wasm-debug]
-version = "0.9.8"
+version = "0.10.2"

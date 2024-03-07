@@ -29,18 +29,3 @@ fn client_request() {
 fn aggregator() {
     dharitri_wasm_debug::denali_rs("denali/aggregator.scen.json", world());
 }
-
-#[test]
-fn init_price_aggregator() {
-    dharitri_wasm_debug::denali_rs("denali/init-price-aggregator.scen.json", world());
-}
-
-#[test]
-fn price_aggregator() {
-    dharitri_wasm_debug::denali_rs("denali/price-aggregator.scen.json", world());
-}
-
-#[test]
-fn price_aggregator_balance() {
-    dharitri_wasm_debug::denali_rs("denali/price-aggregator-balance.scen.json", world());
-}

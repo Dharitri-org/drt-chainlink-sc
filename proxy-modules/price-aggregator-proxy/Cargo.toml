@@ -5,10 +5,10 @@ authors = [ "",]
 edition = "2018"
 
 [dependencies.dharitri-wasm]
-version = "0.9.8"
+version = "0.10.2"
 
 [dependencies.dharitri-wasm-derive]
-version = "0.9.8"
+version = "0.10.2"
 
 [dev-dependencies.dharitri-wasm-debug]
-version = "0.9.8"
+version = "0.10.2"

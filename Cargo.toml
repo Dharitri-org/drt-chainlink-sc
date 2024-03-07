@@ -24,7 +24,15 @@ path = "exchange"
 path = "price-aggregator"
 
 [dependencies.dharitri-wasm]
-version = "0.9.8"
+version = "0.10.2"
 
 [dev-dependencies.dharitri-wasm-debug]
-version = "0.9.8"
+version = "0.10.2"
+
+[dev-dependencies.dharitri-wasm-modules]
+version = "0.10.2"
+
+[dev-dependencies]
+num-bigint = "0.4.2"
+num-traits = "0.2"
+hex = "0.4"

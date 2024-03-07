@@ -9,7 +9,7 @@
   ],
   "tasks": [
     {
-      "type": "erd-price-job",
+      "type": "moa-price-job",
       "confirmations": null,
       "params": {}
     }
