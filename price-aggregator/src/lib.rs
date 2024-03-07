@@ -1,5 +1,4 @@
 #![no_std]
-#![feature(destructuring_assignment)]
 
 dharitri_wasm::imports!();
 pub mod median;
@@ -7,91 +6,87 @@ pub mod median;
 mod price_aggregator_data;
 use price_aggregator_data::{OracleStatus, PriceFeed, TokenPair};
 
-#[dharitri_wasm_derive::contract]
+const SUBMISSION_LIST_MAX_LEN: usize = 50;
+
+#[dharitri_wasm::contract]
 pub trait PriceAggregator {
     #[init]
     fn init(
         &self,
         payment_token: TokenIdentifier,
-        oracles: Vec<Address>,
+        oracles: ManagedVec<ManagedAddress>,
         submission_count: u32,
         decimals: u8,
-        query_payment_amount: Self::BigUint,
-    ) -> SCResult<()> {
+        query_payment_amount: BigUint,
+    ) {
         self.payment_token().set(&payment_token);
         self.query_payment_amount().set(&query_payment_amount);
         self.submission_count().set(&submission_count);
         self.decimals().set(&decimals);
-        oracles.iter().for_each(|oracle| {
+        for oracle in &oracles {
             self.oracle_status().insert(
-                oracle.clone(),
+                oracle,
                 OracleStatus {
                     total_submissions: 0,
                     accepted_submissions: 0,
                 },
             );
-        });
-        Ok(())
+        }
     }
 
     #[endpoint]
     #[payable("*")]
-    fn deposit(
-        &self,
-        #[payment] payment: Self::BigUint,
-        #[payment_token] token: TokenIdentifier,
-        #[var_args] on_behalf_of: OptionalArg<Address>,
-    ) -> SCResult<()> {
+    fn deposit(&self, on_behalf_of: OptionalValue<ManagedAddress>) {
+        let (payment, token) = self.call_value().payment_token_pair();
         require!(token == self.payment_token().get(), "wrong token type");
         let to = on_behalf_of
             .into_option()
             .unwrap_or_else(|| self.blockchain().get_caller());
         self.add_balance(to, &payment);
-        Ok(())
     }
 
-    fn add_balance(&self, to: Address, amount: &Self::BigUint) {
+    fn add_balance(&self, to: ManagedAddress, amount: &BigUint) {
         self.balance()
             .entry(to)
-            .or_default()
-            .update(|balance| *balance += amount.clone());
+            .or_insert_with(|| BigUint::zero())
+            .update(|balance| *balance += amount);
     }
 
-    fn subtract_balance(&self, from: Address, amount: &Self::BigUint) -> SCResult<()> {
-        self.balance().entry(from).or_default().update(|balance| {
-            require!(*balance >= *amount, "insufficient balance");
-            *balance -= amount.clone();
-            Ok(())
-        })
+    fn subtract_balance(&self, from: ManagedAddress, amount: &BigUint) -> SCResult<()> {
+        self.balance()
+            .entry(from)
+            .or_insert_with(|| BigUint::zero())
+            .update(|balance| {
+                require_old!(*balance >= *amount, "insufficient balance");
+                *balance -= amount;
+
+                Ok(())
+            })
     }
 
     #[endpoint]
-    fn withdraw(&self, amount: Self::BigUint) -> SCResult<()> {
+    fn withdraw(&self, amount: BigUint) {
         let caller = self.blockchain().get_caller();
-        self.subtract_balance(caller.clone(), &amount)?;
+        self.subtract_balance(caller.clone(), &amount)
+            .unwrap_or_signal_error::<Self::Api>();
         self.send()
-            .direct(&caller, &self.payment_token().get(), &amount, &[]);
-        Ok(())
+            .direct(&caller, &self.payment_token().get(), 0, &amount, &[]);
     }
 
-    fn transfer(&self, from: Address, to: Address, amount: &Self::BigUint) -> SCResult<()> {
+    fn transfer(&self, from: ManagedAddress, to: ManagedAddress, amount: &BigUint) -> SCResult<()> {
         self.subtract_balance(from, amount)?;
         self.add_balance(to, amount);
+
         Ok(())
     }
 
     #[endpoint]
-    fn submit(&self, from: BoxedBytes, to: BoxedBytes, price: Self::BigUint) -> SCResult<()> {
-        self.require_is_oracle()?;
+    fn submit(&self, from: ManagedBuffer, to: ManagedBuffer, price: BigUint) {
+        self.require_is_oracle();
         self.submit_unchecked(from, to, price)
     }
 
-    fn submit_unchecked(
-        &self,
-        from: BoxedBytes,
-        to: BoxedBytes,
-        price: Self::BigUint,
-    ) -> SCResult<()> {
+    fn submit_unchecked(&self, from: ManagedBuffer, to: ManagedBuffer, price: BigUint) {
         let token_pair = TokenPair { from, to };
         let mut submissions = self
             .submissions()
@@ -107,44 +102,51 @@ pub trait PriceAggregator {
                 oracle_status.accepted_submissions += accepted as u64;
                 oracle_status.total_submissions += 1;
             });
-        self.create_new_round(token_pair, submissions)?;
-        Ok(())
+        self.create_new_round(token_pair, submissions);
     }
 
     #[endpoint(submitBatch)]
     fn submit_batch(
         &self,
-        #[var_args] submissions: MultiArgVec<MultiArg3<BoxedBytes, BoxedBytes, Self::BigUint>>,
-    ) -> SCResult<()> {
-        self.require_is_oracle()?;
+        submissions: MultiValueEncoded<MultiValue3<ManagedBuffer, ManagedBuffer, BigUint>>,
+    ) {
+        self.require_is_oracle();
 
         for (from, to, price) in submissions
-            .iter()
-            .cloned()
+            .into_iter()
             .map(|submission| submission.into_tuple())
         {
-            self.submit_unchecked(from, to, price)?;
+            self.submit_unchecked(from, to, price);
         }
-        Ok(())
     }
 
-    fn require_is_oracle(&self) -> SCResult<()> {
+    fn require_is_oracle(&self) {
         require!(
             self.oracle_status()
                 .contains_key(&self.blockchain().get_caller()),
             "only oracles allowed"
         );
-        Ok(())
     }
 
     fn create_new_round(
         &self,
-        token_pair: TokenPair,
-        mut submissions: MapMapper<Self::Storage, Address, Self::BigUint>,
-    ) -> SCResult<()> {
-        if submissions.len() as u32 >= self.submission_count().get() {
-            let price_feed =
-                median::calculate(submissions.values().collect())?.ok_or("no submissions")?;
+        token_pair: TokenPair<Self::Api>,
+        mut submissions: MapMapper<ManagedAddress, BigUint>,
+    ) {
+        let submissions_len = submissions.len();
+        if submissions_len as u32 >= self.submission_count().get() {
+            require!(
+                submissions_len <= SUBMISSION_LIST_MAX_LEN,
+                "submission list capacity exceeded"
+            );
+            let mut submissions_vec = ArrayVec::<BigUint, SUBMISSION_LIST_MAX_LEN>::new();
+            for submission_value in submissions.values() {
+                submissions_vec.push(submission_value);
+            }
+            let price_feed_result = median::calculate(submissions_vec.as_mut_slice());
+            let price_feed_opt = price_feed_result.unwrap_or_else(|err| sc_panic!(err.as_bytes()));
+            let price_feed = price_feed_opt.unwrap_or_else(|| sc_panic!("no submissions"));
+
             self.rounds()
                 .entry(token_pair)
                 .or_default()
@@ -152,36 +154,40 @@ pub trait PriceAggregator {
                 .push(&price_feed);
             submissions.clear();
         }
-        Ok(())
     }
 
     #[view(myBalance)]
-    fn my_balance(&self) -> Self::BigUint {
+    fn my_balance(&self) -> BigUint {
         self.get_balance(self.blockchain().get_caller())
     }
 
     #[view(getBalance)]
-    fn get_balance(&self, address: Address) -> Self::BigUint {
-        self.balance().get(&address).unwrap_or_default()
+    fn get_balance(&self, address: ManagedAddress) -> BigUint {
+        self.balance()
+            .get(&address)
+            .unwrap_or_else(|| BigUint::zero())
     }
 
     #[view(latestRoundData)]
-    fn latest_round_data(&self) -> SCResult<MultiResultVec<PriceFeed<Self::BigUint>>> {
-        self.subtract_query_payment()?;
+    fn latest_round_data(&self) -> MultiValueEncoded<PriceFeed<Self::Api>> {
+        self.subtract_query_payment()
+            .unwrap_or_signal_error::<Self::Api>();
         require!(!self.rounds().is_empty(), "no completed rounds");
-        Ok(self
-            .rounds()
-            .iter()
-            .map(|(token_pair, round_values)| self.make_price_feed(token_pair, round_values))
-            .collect())
+
+        let mut result = MultiValueEncoded::new();
+        for (token_pair, round_values) in self.rounds().iter() {
+            result.push(self.make_price_feed(token_pair, round_values));
+        }
+
+        result
     }
 
     #[endpoint(latestPriceFeed)]
     fn latest_price_feed(
         &self,
-        from: BoxedBytes,
-        to: BoxedBytes,
-    ) -> SCResult<MultiArg5<u32, BoxedBytes, BoxedBytes, Self::BigUint, u8>> {
+        from: ManagedBuffer,
+        to: ManagedBuffer,
+    ) -> SCResult<MultiValue5<u32, ManagedBuffer, ManagedBuffer, BigUint, u8>> {
         self.subtract_query_payment()?;
         let token_pair = TokenPair { from, to };
         let round_values = self
@@ -189,36 +195,29 @@ pub trait PriceAggregator {
             .get(&token_pair)
             .ok_or("token pair not found")?;
         let feed = self.make_price_feed(token_pair, round_values);
-        Ok(MultiArg5::from((
-            feed.round_id,
-            feed.from,
-            feed.to,
-            feed.price,
-            feed.decimals,
-        )))
+        Ok((feed.round_id, feed.from, feed.to, feed.price, feed.decimals).into())
     }
 
     #[view(latestPriceFeedOptional)]
     fn latest_price_feed_optional(
         &self,
-        from: BoxedBytes,
-        to: BoxedBytes,
-    ) -> OptionalResult<MultiArg5<u32, BoxedBytes, BoxedBytes, Self::BigUint, u8>> {
+        from: ManagedBuffer,
+        to: ManagedBuffer,
+    ) -> OptionalValue<MultiValue5<u32, ManagedBuffer, ManagedBuffer, BigUint, u8>> {
         self.latest_price_feed(from, to).ok().into()
     }
 
+    #[only_owner]
     #[endpoint(setSubmissionCount)]
-    fn set_submission_count(&self, submission_count: u32) -> SCResult<()> {
-        only_owner!(self, "Caller must be owner");
+    fn set_submission_count(&self, submission_count: u32) {
         self.submission_count().set(&submission_count);
-        Ok(())
     }
 
     fn make_price_feed(
         &self,
-        token_pair: TokenPair,
-        round_values: VecMapper<Self::Storage, Self::BigUint>,
-    ) -> PriceFeed<Self::BigUint> {
+        token_pair: TokenPair<Self::Api>,
+        round_values: VecMapper<BigUint>,
+    ) -> PriceFeed<Self::Api> {
         let round_id = round_values.len();
         PriceFeed {
             round_id: round_id as u32,
@@ -238,39 +237,41 @@ pub trait PriceAggregator {
     }
 
     #[view(getOracles)]
-    fn get_oracles(&self) -> MultiResultVec<Address> {
-        self.oracle_status().keys().collect()
+    fn get_oracles(&self) -> MultiValueEncoded<ManagedAddress> {
+        let mut result = MultiValueEncoded::new();
+        for key in self.oracle_status().keys() {
+            result.push(key);
+        }
+        result
     }
 
     #[view]
     #[storage_mapper("payment_token")]
-    fn payment_token(&self) -> SingleValueMapper<Self::Storage, TokenIdentifier>;
+    fn payment_token(&self) -> SingleValueMapper<TokenIdentifier>;
 
     #[view]
     #[storage_mapper("query_payment_amount")]
-    fn query_payment_amount(&self) -> SingleValueMapper<Self::Storage, Self::BigUint>;
+    fn query_payment_amount(&self) -> SingleValueMapper<BigUint>;
 
     #[view]
     #[storage_mapper("submission_count")]
-    fn submission_count(&self) -> SingleValueMapper<Self::Storage, u32>;
+    fn submission_count(&self) -> SingleValueMapper<u32>;
 
     #[view]
     #[storage_mapper("decimals")]
-    fn decimals(&self) -> SingleValueMapper<Self::Storage, u8>;
+    fn decimals(&self) -> SingleValueMapper<u8>;
 
     #[storage_mapper("oracle_status")]
-    fn oracle_status(&self) -> MapMapper<Self::Storage, Address, OracleStatus>;
+    fn oracle_status(&self) -> MapMapper<ManagedAddress, OracleStatus>;
 
     #[storage_mapper("rounds")]
-    fn rounds(
-        &self,
-    ) -> MapStorageMapper<Self::Storage, TokenPair, VecMapper<Self::Storage, Self::BigUint>>;
+    fn rounds(&self) -> MapStorageMapper<TokenPair<Self::Api>, VecMapper<BigUint>>;
 
     #[storage_mapper("submissions")]
     fn submissions(
         &self,
-    ) -> MapStorageMapper<Self::Storage, TokenPair, MapMapper<Self::Storage, Address, Self::BigUint>>;
+    ) -> MapStorageMapper<TokenPair<Self::Api>, MapMapper<ManagedAddress, BigUint>>;
 
     #[storage_mapper("balance")]
-    fn balance(&self) -> MapMapper<Self::Storage, Address, Self::BigUint>;
+    fn balance(&self) -> MapMapper<ManagedAddress, BigUint>;
 }

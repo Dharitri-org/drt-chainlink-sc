@@ -1,19 +1,26 @@
+use aggregator::aggregator_interface::{Submission, MAX_SUBMISSION_VALUES};
 use aggregator::median;
-use aggregator::aggregator_interface::Submission;
-use dharitri_wasm_debug::api::RustBigUint;
+use dharitri_wasm::arrayvec::ArrayVec;
+use dharitri_wasm::types::BigUint;
+use dharitri_wasm_debug::DebugApi;
 
-fn to_vec_biguint(v: Vec<u32>) -> Vec<RustBigUint> {
-    v.iter().map(|value| (*value as u64).into()).collect()
+fn to_vec_biguint(v: Vec<u32>) -> ArrayVec<BigUint<DebugApi>, MAX_SUBMISSION_VALUES> {
+    v.iter()
+        .map(|value| BigUint::<DebugApi>::from(*value))
+        .collect()
 }
 
 fn check_median_result(expected: Option<u32>, v: Vec<u32>) {
-    let expected_biguint: Option<RustBigUint> = expected.map(|value| value.into());
-    let actual_result = median::calculate::<RustBigUint>(to_vec_biguint(v));
+    let expected_biguint: Option<BigUint<DebugApi>> =
+        expected.map(|value| BigUint::<DebugApi>::from(value));
+    let actual_result = median::calculate::<DebugApi>(to_vec_biguint(v));
     assert_eq!(Result::Ok(expected_biguint), actual_result);
 }
 
 #[test]
 fn test_median() {
+    let _ = DebugApi::dummy();
+
     // empty list
     check_median_result(None, vec![]);
 
@@ -34,6 +41,7 @@ fn test_median() {
 
 #[test]
 fn test_median_equal() {
+    let _ = DebugApi::dummy();
     check_median_result(Some(42), vec![42]);
     check_median_result(Some(42), vec![42, 42]);
     check_median_result(Some(42), vec![42, 42, 42]);
@@ -42,21 +50,29 @@ fn test_median_equal() {
 
 #[test]
 fn test_median_submission_empty() {
-    let actual_result = median::calculate_submission_median::<RustBigUint>(vec![]).unwrap();
-    assert_eq!(actual_result, None);
+    let actual_result = median::calculate_submission_median::<DebugApi>(ArrayVec::new()).unwrap();
+    assert!(actual_result.is_none());
 }
 
 #[test]
 fn test_median_submission() {
+    let _ = DebugApi::dummy();
     let submission_a = Submission {
-        values: to_vec_biguint(vec![100, 5000, 6000, 7000, 200, 300, 400])
+        values: to_vec_biguint(vec![100, 5000, 6000, 7000, 200, 300, 400]),
     };
     let submission_b = Submission {
-        values: to_vec_biguint(vec![110, 5010, 6010, 7010, 210, 310, 410])
+        values: to_vec_biguint(vec![110, 5010, 6010, 7010, 210, 310, 410]),
     };
     let expected_submission_result = Submission {
-        values: to_vec_biguint(vec![105, 5005, 6005, 7005, 205, 305, 405])
+        values: to_vec_biguint(vec![105, 5005, 6005, 7005, 205, 305, 405]),
     };
-    let actual_result = median::calculate_submission_median::<RustBigUint>(vec![submission_a, submission_b]).unwrap();
-    assert_eq!(actual_result, Some(expected_submission_result));
+
+    let mut a_b_as_vec = ArrayVec::new();
+    a_b_as_vec.push(submission_a);
+    a_b_as_vec.push(submission_b);
+
+    let actual_result = median::calculate_submission_median(a_b_as_vec)
+        .unwrap()
+        .unwrap();
+    assert_eq!(actual_result.values, expected_submission_result.values);
 }

@@ -8,18 +8,11 @@ publish = false
 [lib]
 path = "src/lib.rs"
 
-[features]
-wasm-output-mode = [ "dharitri-wasm-node",]
-
 [dependencies.dharitri-wasm]
-version = "0.6.3"
+version = "0.9.8"
 
-[dependencies.dharitri-wasm-derive]
-version = "0.6.3"
-
-[dependencies.dharitri-wasm-node]
-version = "0.6.3"
-optional = true
+[dependencies]
+arrayvec = { version = "0.7.1", default-features = false }
 
 [dev-dependencies.dharitri-wasm-debug]
-version = "0.6.3"
+version = "0.9.8"

@@ -1,4 +1,14 @@
+////////////////////////////////////////////////////
+////////////////// AUTO-GENERATED //////////////////
+////////////////////////////////////////////////////
+
 #![no_std]
 
-pub use dharitri_wasm_output::*;
-pub use exchange::*;
+dharitri_wasm_node::wasm_endpoints! {
+    exchange
+    (
+        callBack
+        deposit
+        exchange
+    )
+}

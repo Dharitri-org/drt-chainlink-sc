@@ -4,37 +4,54 @@ dharitri_wasm::imports!();
 dharitri_wasm::derive_imports!();
 
 extern crate aggregator;
+use aggregator::aggregator_interface::DescriptionVec;
 
 use crate::aggregator::aggregator_interface::Round;
 
-#[macro_use]
-extern crate alloc;
+const MAX_FORMATTED_NUMBER_CHARS: usize = 30;
+const MAX_PADDING_LEN: usize = 18;
+const MAX_PADDED_NUMBER_CHARS: usize = MAX_FORMATTED_NUMBER_CHARS + MAX_PADDING_LEN;
 
-pub fn format_biguint<BigUint: BigUintApi>(number: &BigUint) -> Vec<u8> {
-    let mut nr = number.clone();
+pub fn format_biguint<M: ManagedTypeApi>(
+    mut number: BigUint<M>,
+) -> ArrayVec<u8, MAX_FORMATTED_NUMBER_CHARS> {
     let radix = BigUint::from(10u32);
-    let mut result = Vec::new();
+    let mut result = ArrayVec::<u8, MAX_FORMATTED_NUMBER_CHARS>::new();
 
     loop {
-        let last_digit = nr.clone() % radix.clone();
-        nr = nr / radix.clone();
+        let last_digit = &number % &radix;
+        number /= &radix;
 
-        let digit = *last_digit.to_bytes_be().get(0).unwrap_or(&0) as u8;
+        let digit = last_digit.to_u64().unwrap_or_default() as u8;
         result.push('0' as u8 + digit);
-        if nr == 0 {
+
+        if number == 0u32 {
             break;
         }
     }
+
     result.into_iter().rev().collect()
 }
 
-pub fn format_fixed_precision<BigUint: BigUintApi>(number: &BigUint, decimals: usize) -> Vec<u8> {
+pub fn format_fixed_precision<M: ManagedTypeApi>(
+    number: BigUint<M>,
+    decimals: usize,
+) -> ArrayVec<u8, MAX_FORMATTED_NUMBER_CHARS> {
     let formatted_number = format_biguint(number);
     let padding_length = (decimals + 1)
         .checked_sub(formatted_number.len())
         .unwrap_or_default();
-    let padding: Vec<u8> = vec!['0' as u8; padding_length];
-    let padded_number = BoxedBytes::from_concat(&[&padding, &formatted_number]);
+
+    // is there a better way to do this?
+    let mut padding = ArrayVec::<u8, MAX_PADDING_LEN>::new();
+    for _ in 0..padding_length {
+        padding.push(b'0');
+    }
+
+    let mut padded_number = ArrayVec::<u8, MAX_PADDED_NUMBER_CHARS>::new();
+    padded_number.extend(padding);
+    padded_number.extend(formatted_number);
+
     let digits_before_dot = padded_number.len() - decimals;
 
     let left = padded_number.as_slice().iter().take(digits_before_dot);
@@ -43,33 +60,32 @@ pub fn format_fixed_precision<BigUint: BigUintApi>(number: &BigUint, decimals: u
     left.chain(dot).chain(right).cloned().collect()
 }
 
-#[dharitri_wasm_derive::contract]
+#[dharitri_wasm::contract]
 pub trait MoaxDctExchange {
     #[init]
-    fn init(&self, aggregator: Address) {
+    fn init(&self, aggregator: ManagedAddress) {
         self.aggregator().set(&aggregator);
     }
 
+    #[only_owner]
     #[payable("*")]
     #[endpoint(deposit)]
     fn deposit(
         &self,
-        #[payment] payment: Self::BigUint,
+        #[payment] payment: BigUint,
         #[payment_token] payment_token: TokenIdentifier,
-    ) -> SCResult<()> {
-        only_owner!(self, "Only the owner can deposit tokens");
+    ) {
         self.increase_balance(&payment_token, &payment);
-        Ok(())
     }
 
     #[payable("*")]
     #[endpoint(exchange)]
     fn exchange(
         &self,
-        #[payment] payment: Self::BigUint,
+        #[payment] payment: BigUint,
         #[payment_token] source_token: TokenIdentifier,
         target_token: TokenIdentifier,
-    ) -> SCResult<AsyncCall<Self::SendApi>> {
+    ) {
         require!(payment > 0, "Payment must be more than 0");
         require!(
             self.balance().contains_key(&source_token),
@@ -81,8 +97,7 @@ pub trait MoaxDctExchange {
         );
         self.increase_balance(&source_token, &payment);
 
-        Ok(self
-            .aggregator_interface_proxy(self.aggregator().get())
+        self.aggregator_interface_proxy(self.aggregator().get())
             .latest_round_data()
             .async_call()
             .with_callback(self.callbacks().finalize_exchange(
@@ -90,29 +105,30 @@ pub trait MoaxDctExchange {
                 payment,
                 source_token,
                 target_token,
-            )))
+            ))
+            .call_and_exit();
     }
 
     fn check_aggregator_tokens(
         &self,
-        description: BoxedBytes,
+        description: DescriptionVec,
         source_token: &TokenIdentifier,
         target_token: &TokenIdentifier,
-    ) -> Result<bool, BoxedBytes> {
+    ) -> Result<bool, ManagedBuffer> {
         let delimiter_position = description
             .as_slice()
             .iter()
             .position(|item| *item == '/' as u8)
-            .ok_or(BoxedBytes::from(
+            .ok_or(ManagedBuffer::from(
                 "Invalid aggregator description format (expected 2 tokens)".as_bytes(),
             ))?;
-        let (first, second) = description.split(delimiter_position);
-        let first_token = &TokenIdentifier::from(first);
-        let second_token = &TokenIdentifier::from(second);
-        if first_token == source_token && second_token == target_token {
+        let (first, second) = description.split_at(delimiter_position);
+        let first_token = TokenIdentifier::from(first);
+        let second_token = TokenIdentifier::from(second);
+        if &first_token == source_token && &second_token == target_token {
             return Result::Ok(false);
         }
-        if first_token == target_token && second_token == source_token {
+        if &first_token == target_token && &second_token == source_token {
             return Result::Ok(true);
         }
         Result::Err(
@@ -124,15 +140,15 @@ pub trait MoaxDctExchange {
 
     fn convert(
         &self,
-        amount: &Self::BigUint,
+        amount: &BigUint,
         source_token: &TokenIdentifier,
         target_token: &TokenIdentifier,
-        multiplier: &Self::BigUint,
-        divisor: &Self::BigUint,
-        precision_factor: &Self::BigUint,
+        multiplier: &BigUint,
+        divisor: &BigUint,
+        precision_factor: &BigUint,
         decimals: usize,
-    ) -> Result<(Self::BigUint, BoxedBytes), BoxedBytes> {
-        if divisor == &Self::BigUint::zero() {
+    ) -> Result<(BigUint, ManagedBuffer), ManagedBuffer> {
+        if divisor == &BigUint::zero() {
             return Result::Err("Convert - dividing by 0".as_bytes().into());
         }
         let converted_amount = amount * multiplier / divisor.clone();
@@ -150,14 +166,14 @@ pub trait MoaxDctExchange {
 
     fn get_converted_sum(
         &self,
-        payment: &Self::BigUint,
+        payment: &BigUint,
         source_token: &TokenIdentifier,
         target_token: &TokenIdentifier,
-        exchange_rate: &Self::BigUint,
+        exchange_rate: &BigUint,
         decimals: usize,
         reverse_exchange: bool,
-    ) -> Result<(Self::BigUint, BoxedBytes), BoxedBytes> {
-        let precision_factor = Self::BigUint::from(10u64.pow(decimals as u32));
+    ) -> Result<(BigUint, ManagedBuffer), ManagedBuffer> {
+        let precision_factor = BigUint::from(10u64.pow(decimals as u32));
         if !reverse_exchange {
             self.convert(
                 payment,
@@ -183,23 +199,23 @@ pub trait MoaxDctExchange {
 
     fn try_convert(
         &self,
-        result: AsyncCallResult<OptionalArg<Round<Self::BigUint>>>,
-        payment: &Self::BigUint,
+        result: ManagedAsyncCallResult<OptionalValue<Round<Self::Api>>>,
+        payment: &BigUint,
         source_token: &TokenIdentifier,
         target_token: &TokenIdentifier,
-    ) -> Result<(Self::BigUint, BoxedBytes), BoxedBytes> {
+    ) -> Result<(BigUint, ManagedBuffer), ManagedBuffer> {
         match result {
-            AsyncCallResult::Ok(optional_result_round) => {
+            ManagedAsyncCallResult::Ok(optional_result_round) => {
                 let option_round = match optional_result_round {
-                    OptionalArg::Some(round) => Some(round),
-                    OptionalArg::None => None,
+                    OptionalValue::Some(round) => Some(round),
+                    OptionalValue::None => None,
                 };
-                let error_message: BoxedBytes = b"no round data"[..].into();
+                let error_message: ManagedBuffer = b"no round data"[..].into();
                 let round = option_round.ok_or(error_message)?;
-                let error_message: BoxedBytes = b"no aggregator data"[..].into();
+                let error_message: ManagedBuffer = b"no aggregator data"[..].into();
                 let submission = round.answer.ok_or(error_message)?;
                 if submission.values.len() != 1 {
-                    let error_message: BoxedBytes = b"invalid aggregator data format"[..].into();
+                    let error_message: ManagedBuffer = b"invalid aggregator data format"[..].into();
                     return Result::Err(error_message);
                 }
                 let exchange_rate = &submission.values[0];
@@ -214,21 +230,24 @@ pub trait MoaxDctExchange {
                     reverse_exchange,
                 )?;
                 match self.checked_decrease_balance(target_token, &converted_amount) {
-                    Result::Err(error) => Result::Err(BoxedBytes::from_concat(&[
-                        error.as_slice(),
-                        b" (",
-                        conversion_message.as_slice(),
-                        b")",
-                    ])),
+                    Result::Err(mut error) => {
+                        error.append_bytes(b" (");
+                        error.append(&conversion_message);
+                        error.append_bytes(b")");
+
+                        Result::Err(error)
+                    }
                     Result::Ok(()) => Result::Ok((converted_amount, conversion_message)),
                 }
             }
-            AsyncCallResult::Err(error) => {
+            ManagedAsyncCallResult::Err(error) => {
                 self.checked_decrease_balance(source_token, &payment)?;
-                Result::Err(BoxedBytes::from_concat(&[
+                let mut error_msg = ManagedBuffer::new_from_bytes(
                     b"Error when getting the price feed from the aggregator: ",
-                    error.err_msg.as_ref(),
-                ]))
+                );
+                error_msg.append(&error.err_msg);
+
+                Result::Err(error_msg)
             }
         }
     }
@@ -236,40 +255,37 @@ pub trait MoaxDctExchange {
     #[callback]
     fn finalize_exchange(
         &self,
-        #[call_result] result: AsyncCallResult<OptionalArg<Round<Self::BigUint>>>,
-        caller: Address,
-        payment: Self::BigUint,
+        #[call_result] result: ManagedAsyncCallResult<OptionalValue<Round<Self::Api>>>,
+        caller: ManagedAddress,
+        payment: BigUint,
         source_token: TokenIdentifier,
         target_token: TokenIdentifier,
     ) {
         match self.try_convert(result, &payment, &source_token, &target_token) {
             Result::Ok((converted_payment, conversion_message)) => {
-                let message = BoxedBytes::from_concat(&[
-                    b"exchange succesful ",
-                    b"(",
-                    conversion_message.as_slice(),
-                    b")",
-                ]);
-                self.send().direct(
-                    &caller,
-                    &target_token,
-                    &converted_payment,
-                    message.as_slice(),
-                );
+                let mut message = ManagedBuffer::new_from_bytes(b"exchange succesful (");
+                message.append(&conversion_message);
+                message.append_bytes(b")");
+
+                self.send()
+                    .direct(&caller, &target_token, 0, &converted_payment, message);
             }
             Result::Err(error) => {
-                let message = BoxedBytes::from_concat(&[b"refund (", error.as_slice(), b")"]);
+                let mut message = ManagedBuffer::new_from_bytes(b"refund (");
+                message.append(&error);
+                message.append_bytes(b")");
+
                 self.send()
-                    .direct(&caller, &source_token, &payment, message.as_slice());
+                    .direct(&caller, &source_token, 0, &payment, message);
             }
         }
     }
 
-    fn increase_balance(&self, token_identifier: &TokenIdentifier, amount: &Self::BigUint) {
+    fn increase_balance(&self, token_identifier: &TokenIdentifier, amount: &BigUint) {
         let mut balance = self
             .balance()
             .get(&token_identifier)
-            .unwrap_or_else(|| 0u32.into());
+            .unwrap_or_else(|| BigUint::zero());
         balance += amount;
         self.balance().insert(token_identifier.clone(), balance);
     }
@@ -277,69 +293,71 @@ pub trait MoaxDctExchange {
     fn checked_decrease_balance(
         &self,
         token_identifier: &TokenIdentifier,
-        amount: &Self::BigUint,
-    ) -> Result<(), BoxedBytes> {
+        amount: &BigUint,
+    ) -> Result<(), ManagedBuffer> {
         match self.balance().get(&token_identifier) {
             Some(balance) => {
                 if &balance < amount {
-                    Result::Err(BoxedBytes::from_concat(&[
-                        b"Insufficient balance: only ",
-                        &format_biguint(&balance),
-                        b" of ",
-                        token_identifier.as_name(),
-                        b" available",
-                    ]))
+                    let mut err_msg = ManagedBuffer::new_from_bytes(b"Insufficient balance: only ");
+                    err_msg.append_bytes(format_biguint(balance).as_slice());
+                    err_msg.append_bytes(b" of ");
+                    err_msg.append(token_identifier.as_managed_buffer());
+                    err_msg.append_bytes(b" available");
+
+                    Result::Err(err_msg)
                 } else {
                     self.decrease_balance(token_identifier, amount);
                     Result::Ok(())
                 }
             }
-            None => Result::Err(BoxedBytes::from_concat(&[
-                b"No ",
-                token_identifier.as_name(),
-                b" tokens are available",
-            ])),
+            None => {
+                let mut err_msg = ManagedBuffer::new_from_bytes(b"No ");
+                err_msg.append(token_identifier.as_managed_buffer());
+                err_msg.append_bytes(b" tokens are available");
+
+                Result::Err(err_msg)
+            }
         }
     }
 
-    fn decrease_balance(&self, token_identifier: &TokenIdentifier, amount: &Self::BigUint) {
+    fn decrease_balance(&self, token_identifier: &TokenIdentifier, amount: &BigUint) {
         let mut balance = self
             .balance()
             .get(&token_identifier)
-            .unwrap_or_else(|| 0u32.into());
+            .unwrap_or_else(|| BigUint::zero());
         balance -= amount;
         self.balance().insert(token_identifier.clone(), balance);
     }
 
     fn conversion_message(
         &self,
-        payment: &Self::BigUint,
+        payment: &BigUint,
         source_token: &TokenIdentifier,
-        rate: &Self::BigUint,
+        rate: &BigUint,
         rate_precision: usize,
-        converted_token: &Self::BigUint,
+        converted_token: &BigUint,
         target_token: &TokenIdentifier,
-    ) -> Result<BoxedBytes, BoxedBytes> {
-        Result::Ok(BoxedBytes::from_concat(&[
-            b"conversion from ",
-            &format_biguint(payment),
-            b" of ",
-            source_token.as_name(),
-            b", using exchange rate ",
-            &format_fixed_precision(rate, rate_precision),
-            b", results in ",
-            &format_biguint(converted_token),
-            b" of ",
-            target_token.as_name(),
-        ]))
+    ) -> Result<ManagedBuffer, ManagedBuffer> {
+        let mut message = ManagedBuffer::new_from_bytes(b"conversion from ");
+        message.append_bytes(format_biguint(payment.clone()).as_slice());
+        message.append_bytes(b" of ");
+        message.append(source_token.as_managed_buffer());
+        message.append_bytes(b", using exchange rate ");
+        message.append_bytes(format_fixed_precision(rate.clone(), rate_precision).as_slice());
+        message.append_bytes(b", results in ");
+        message.append_bytes(format_biguint(converted_token.clone()).as_slice());
+        message.append_bytes(b" of ");
+        message.append(target_token.as_managed_buffer());
+
+        Result::Ok(message)
     }
 
     #[storage_mapper("aggregator")]
-    fn aggregator(&self) -> SingleValueMapper<Self::Storage, Address>;
+    fn aggregator(&self) -> SingleValueMapper<ManagedAddress>;
 
     #[storage_mapper("balance")]
-    fn balance(&self) -> MapMapper<Self::Storage, TokenIdentifier, Self::BigUint>;
+    fn balance(&self) -> MapMapper<TokenIdentifier, BigUint>;
 
     #[proxy]
-    fn aggregator_interface_proxy(&self, to: Address) -> aggregator::Proxy<Self::SendApi>;
+    fn aggregator_interface_proxy(&self, to: ManagedAddress) -> aggregator::Proxy<Self::Api>;
 }

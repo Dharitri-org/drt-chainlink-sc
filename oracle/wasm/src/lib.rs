@@ -1,4 +1,20 @@
+////////////////////////////////////////////////////
+////////////////// AUTO-GENERATED //////////////////
+////////////////////////////////////////////////////
+
 #![no_std]
 
-pub use dharitri_wasm_output::*;
-pub use oracle::*;
+dharitri_wasm_node::wasm_endpoints! {
+    oracle
+    (
+        addAuthorization
+        authorizedNodes
+        fulfillRequest
+        removeAuthorization
+        request
+        requestsAsVec
+        submit
+    )
+}
+
+dharitri_wasm_node::wasm_empty_callback! {}

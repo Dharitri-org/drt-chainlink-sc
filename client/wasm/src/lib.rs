@@ -1,4 +1,16 @@
+////////////////////////////////////////////////////
+////////////////// AUTO-GENERATED //////////////////
+////////////////////////////////////////////////////
+
 #![no_std]
 
-pub use client::*;
-pub use dharitri_wasm_output::*;
+dharitri_wasm_node::wasm_endpoints! {
+    client
+    (
+        getClientData
+        reply
+        sendRequest
+    )
+}
+
+dharitri_wasm_node::wasm_empty_callback! {}

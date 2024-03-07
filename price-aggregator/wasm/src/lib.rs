@@ -1,4 +1,28 @@
+////////////////////////////////////////////////////
+////////////////// AUTO-GENERATED //////////////////
+////////////////////////////////////////////////////
+
 #![no_std]
 
-pub use dharitri_wasm_output::*;
-pub use price_aggregator::*;
+dharitri_wasm_node::wasm_endpoints! {
+    price_aggregator
+    (
+        decimals
+        deposit
+        getBalance
+        getOracles
+        latestPriceFeed
+        latestPriceFeedOptional
+        latestRoundData
+        myBalance
+        payment_token
+        query_payment_amount
+        setSubmissionCount
+        submission_count
+        submit
+        submitBatch
+        withdraw
+    )
+}
+
+dharitri_wasm_node::wasm_empty_callback! {}

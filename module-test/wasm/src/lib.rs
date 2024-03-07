@@ -1,4 +1,15 @@
+////////////////////////////////////////////////////
+////////////////// AUTO-GENERATED //////////////////
+////////////////////////////////////////////////////
+
 #![no_std]
 
-pub use module_test::*;
-pub use dharitri_wasm_output::*;
+dharitri_wasm_node::wasm_endpoints! {
+    module_test
+    (
+        getAggregatorAddress
+        setPriceAggregatorAddress
+    )
+}
+
+dharitri_wasm_node::wasm_empty_callback! {}

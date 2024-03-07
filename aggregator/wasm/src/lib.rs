@@ -1,4 +1,34 @@
+////////////////////////////////////////////////////
+////////////////// AUTO-GENERATED //////////////////
+////////////////////////////////////////////////////
+
 #![no_std]
 
-pub use dharitri_wasm_output::*;
-pub use aggregator::*;
+dharitri_wasm_node::wasm_endpoints! {
+    aggregator
+    (
+        acceptAdmin
+        addFunds
+        allocatedFunds
+        availableFunds
+        changeOracles
+        getAdmin
+        getOracles
+        getRoundData
+        latestRoundData
+        oracleCount
+        oracleRoundState
+        requestNewRound
+        requiredReserve
+        setRequesterPermissions
+        submit
+        transferAdmin
+        updateFutureRounds
+        withdrawFunds
+        withdrawPayment
+        withdrawableAddedFunds
+        withdrawablePayment
+    )
+}
+
+dharitri_wasm_node::wasm_empty_callback! {}

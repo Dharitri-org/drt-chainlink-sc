@@ -1,7 +1,6 @@
 #![no_std]
 
 extern crate aggregator;
-use dharitri_wasm::types::MultiResultVec;
 mod oracle_request;
 use oracle_request::{OracleRequest, RequestView};
 
@@ -10,26 +9,26 @@ dharitri_wasm::derive_imports!();
 
 mod client_proxy {
     dharitri_wasm::imports!();
-    #[dharitri_wasm_derive::proxy]
+    #[dharitri_wasm::derive::proxy]
     pub trait Client {
         #[endpoint]
-        fn reply(&self, nonce: u64, answer: BoxedBytes);
+        fn reply(&self, nonce: u64, answer: ManagedBuffer);
     }
 }
 
-#[dharitri_wasm_derive::contract]
+#[dharitri_wasm::contract]
 pub trait Oracle {
     #[storage_mapper("nonces")]
-    fn nonces(&self) -> MapMapper<Self::Storage, Address, u64>;
+    fn nonces(&self) -> MapMapper<ManagedAddress, u64>;
 
     #[storage_mapper("requests")]
     fn requests(
         &self,
-    ) -> MapStorageMapper<Self::Storage, Address, MapMapper<Self::Storage, u64, OracleRequest>>;
+    ) -> MapStorageMapper<ManagedAddress, MapMapper<u64, OracleRequest<Self::Api>>>;
 
     #[view(requestsAsVec)]
-    fn requests_as_vec(&self) -> MultiResultVec<RequestView> {
-        let mut vec: Vec<RequestView> = Vec::new();
+    fn requests_as_vec(&self) -> MultiValueEncoded<RequestView<Self::Api>> {
+        let mut vec = MultiValueEncoded::new();
         for (address, request) in self.requests().iter() {
             for (nonce, oracle_request) in request.iter() {
                 vec.push(RequestView {
@@ -39,12 +38,13 @@ pub trait Oracle {
                 })
             }
         }
-        vec.into()
+
+        vec
     }
 
     #[view(authorizedNodes)]
     #[storage_mapper("authorized_nodes")]
-    fn authorized_nodes(&self) -> SetMapper<Self::Storage, Address>;
+    fn authorized_nodes(&self) -> SetMapper<ManagedAddress>;
 
     #[init]
     fn init(&self) {}
@@ -54,19 +54,20 @@ pub trait Oracle {
     #[endpoint(request)]
     fn request(
         &self,
-        callback_address: Address,
-        callback_method: BoxedBytes,
+        callback_address: ManagedAddress,
+        callback_method: ManagedBuffer,
         nonce: u64,
-        data: BoxedBytes,
-    ) -> SCResult<()> {
+        data: ManagedBuffer,
+    ) {
         let caller = self.blockchain().get_caller();
         let mut requests = self.requests();
         let mut caller_requests = requests.entry(caller.clone()).or_default().get();
 
         // Ensure there isn't already the same nonce
-        if caller_requests.contains_key(&nonce) {
-            return sc_error!("Existing account and nonce in requests");
-        }
+        require!(
+            !caller_requests.contains_key(&nonce),
+            "Existing account and nonce in requests"
+        );
 
         let mut nonces = self.nonces();
         let expected_nonce = nonces.get(&caller).map_or(0, |last_nonce| last_nonce + 1);
@@ -81,18 +82,11 @@ pub trait Oracle {
         };
         caller_requests.insert(nonce, new_request);
         nonces.insert(caller, nonce);
-
-        Ok(())
     }
 
     #[endpoint(fulfillRequest)]
-    fn fulfill_request(
-        &self,
-        address: Address,
-        nonce: u64,
-        data: BoxedBytes,
-    ) -> SCResult<AsyncCall<Self::SendApi>> {
-        self.only_authorized_node()?;
+    fn fulfill_request(&self, address: ManagedAddress, nonce: u64, data: ManagedBuffer) {
+        self.only_authorized_node();
 
         // Get the request
         let requests = self.requests();
@@ -113,53 +107,48 @@ pub trait Oracle {
 
         address_requests.remove(&nonce);
 
-        let client = self.client_proxy(request.callback_address);
-        Ok(client.reply(nonce, data).async_call())
+        let mut client = self.client_proxy(request.callback_address);
+        client.reply(nonce, data).async_call().call_and_exit();
     }
 
+    #[only_owner]
     #[endpoint(submit)]
-    fn submit(
-        &self,
-        aggregator: Address,
-        round_id: u64,
-        submission: Self::BigUint,
-    ) -> SCResult<AsyncCall<Self::SendApi>> {
-        only_owner!(self, "Only owner may call this function!");
-        Ok(self
-            .aggregator_proxy(aggregator)
-            .submit(round_id, [submission].iter().cloned().collect())
-            .async_call())
+    fn submit(&self, aggregator: ManagedAddress, round_id: u64, submission: BigUint) {
+        let mut submission_values = MultiValueEncoded::new();
+        submission_values.push(submission);
+
+        self.aggregator_proxy(aggregator)
+            .submit(round_id, submission_values)
+            .async_call()
+            .call_and_exit();
     }
 
+    #[only_owner]
     #[endpoint(addAuthorization)]
-    fn add_authorization(&self, node: Address) -> SCResult<()> {
-        only_owner!(self, "Caller must be owner");
+    fn add_authorization(&self, node: ManagedAddress) {
         require!(self.authorized_nodes().insert(node), "Already authorized");
-        Ok(())
     }
 
+    #[only_owner]
     #[endpoint(removeAuthorization)]
-    fn remove_authorization(&self, node: Address) -> SCResult<()> {
-        only_owner!(self, "Caller must be owner");
+    fn remove_authorization(&self, node: ManagedAddress) {
         require!(
             self.authorized_nodes().remove(&node),
             "Authorization not found"
         );
-        Ok(())
     }
 
-    fn only_authorized_node(&self) -> SCResult<()> {
+    fn only_authorized_node(&self) {
         require!(
             self.authorized_nodes()
                 .contains(&self.blockchain().get_caller()),
             "Not an authorized node to fulfill requests."
         );
-        Ok(())
     }
 
     #[proxy]
-    fn client_proxy(&self, to: Address) -> client_proxy::Proxy<Self::SendApi>;
+    fn client_proxy(&self, to: ManagedAddress) -> client_proxy::Proxy<Self::Api>;
 
     #[proxy]
-    fn aggregator_proxy(&self, to: Address) -> aggregator::Proxy<Self::SendApi>;
+    fn aggregator_proxy(&self, to: ManagedAddress) -> aggregator::Proxy<Self::Api>;
 }
