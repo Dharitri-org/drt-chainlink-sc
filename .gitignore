@@ -1,0 +1,15 @@
+# Dharitri IDE
+**/node_modules
+**/output/**
+**/target/**
+**/testnet/**
+**/wallets/**
+**/moapy.data-storage.json
+**/*.interaction.json
+**/Cargo.lock
+**/*.rs.bk
+
+# user specific
+
+.idea
+.idea/*

@@ -1,0 +1,29 @@
+[package]
+name = "exchange"
+version = "0.0.1"
+authors = [ "Claudiu-Marcel Bruda <claudiu.bruda@dharitri.com>",]
+edition = "2018"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+wasm-output-mode = [ "dharitri-wasm-node",]
+
+[dependencies.aggregator]
+path = "../aggregator"
+default-features = false
+
+[dependencies.dharitri-wasm]
+version = "0.6.3"
+
+[dependencies.dharitri-wasm-derive]
+version = "0.6.3"
+
+[dependencies.dharitri-wasm-node]
+version = "0.6.3"
+optional = true
+
+[dev-dependencies.dharitri-wasm-debug]
+version = "0.6.3"

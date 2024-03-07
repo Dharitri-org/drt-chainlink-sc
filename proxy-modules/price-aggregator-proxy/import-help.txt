@@ -1,0 +1,21 @@
+0.18.2
+
+[dependencies.price-aggregator-proxy]
+git = "https://github.com/DharitriNetwork/sc-chainlink-rs"
+rev = "4e1e19c"
+
+- initial version
+
+-----------------------------------------------------------------------------------
+
+[dependencies.price-aggregator-proxy]
+git = "https://github.com/DharitriNetwork/sc-chainlink-rs"
+rev = "15dac38"
+
+- added function that returns the whole result
+
+-----------------------------------------------------------------------------------
+
+0.19.0
+
+[TBD]
