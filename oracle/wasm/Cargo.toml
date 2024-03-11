@@ -1,0 +1,29 @@
+[package]
+name = "oracle-wasm"
+version = "0.0.0"
+authors = [ "Claudiu-Marcel Bruda <claudiu.bruda@dharitri.com>",]
+edition = "2018"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+
+[dependencies.oracle]
+path = ".."
+
+[dependencies.dharitri-wasm-node]
+version = "0.10.2"
+
+[dependencies.dharitri-wasm-output]
+version = "0.10.2"
+features = ["wasm-output-mode"]
+
+[workspace]
+members = ["."]

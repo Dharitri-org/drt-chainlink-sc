@@ -1,0 +1,277 @@
+{
+    "name": "chainlink initialization - deployment and setup",
+    "steps": [
+        {
+            "step": "setState",
+            "accounts": {
+                "address:oracle1_owner": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "storage": {}
+                },
+                "address:oracle2_owner": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "storage": {}
+                },
+                "address:oracle3_owner": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "storage": {}
+                },
+                "address:aggregator_owner": {
+                    "nonce": "0",
+                    "balance": "1,000,000,000,000",
+                    "storage": {}
+                },
+                "address:client1_owner": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "storage": {}
+                },
+                "address:client2_owner": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "storage": {}
+                },
+                "address:requester": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "storage": {}
+                },
+                "address:authorized_oracle_node": {
+                    "nonce": "0",
+                    "balance": "0",
+                    "storage": {}
+                }
+            },
+            "newAddresses": [
+                {
+                    "creatorAddress": "address:oracle1_owner",
+                    "creatorNonce": "0",
+                    "newAddress": "sc:oracle1_smart_contract"
+                },
+                {
+                    "creatorAddress": "address:oracle2_owner",
+                    "creatorNonce": "0",
+                    "newAddress": "sc:oracle2_smart_contract"
+                },
+                {
+                    "creatorAddress": "address:oracle3_owner",
+                    "creatorNonce": "0",
+                    "newAddress": "sc:oracle3_smart_contract"
+                },
+                {
+                    "creatorAddress": "address:client1_owner",
+                    "creatorNonce": "0",
+                    "newAddress": "sc:client1_smart_contract"
+                },
+                {
+                    "creatorAddress": "address:client2_owner",
+                    "creatorNonce": "0",
+                    "newAddress": "sc:client2_smart_contract"
+                },
+                {
+                    "creatorAddress": "address:aggregator_owner",
+                    "creatorNonce": "0",
+                    "newAddress": "sc:aggregator_smart_contract"
+                }
+            ],
+            "currentBlockInfo": {
+                "blockTimestamp": "400"
+            }
+        },
+        {
+            "step": "scDeploy",
+            "txId": "1-deploy oracle 1",
+            "tx": {
+                "from": "address:oracle1_owner",
+                "contractCode": "file:../oracle/output/oracle.wasm",
+                "value": "0",
+                "arguments": [],
+                "gasLimit": "1,000,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scDeploy",
+            "txId": "2-deploy oracle 2",
+            "tx": {
+                "from": "address:oracle2_owner",
+                "contractCode": "file:../oracle/output/oracle.wasm",
+                "value": "0",
+                "arguments": [],
+                "gasLimit": "1,000,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "3-add authorization oracle 1",
+            "tx": {
+                "from": "address:oracle1_owner",
+                "to": "sc:oracle1_smart_contract",
+                "value": "0",
+                "function": "addAuthorization",
+                "arguments": [
+                    "address:authorized_oracle_node"
+                ],
+                "gasLimit": "100,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scDeploy",
+            "txId": "4-deploy client 1",
+            "tx": {
+                "from": "address:client1_owner",
+                "contractCode": "file:../client/output/client.wasm",
+                "value": "0",
+                "arguments": [
+                    "sc:oracle1_smart_contract"
+                ],
+                "gasLimit": "1,000,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scDeploy",
+            "txId": "5-deploy client 2",
+            "tx": {
+                "from": "address:client2_owner",
+                "contractCode": "file:../client/output/client.wasm",
+                "value": "0",
+                "arguments": [
+                    "sc:oracle2_smart_contract"
+                ],
+                "gasLimit": "1,000,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scDeploy",
+            "txId": "6-deploy aggregator",
+            "tx": {
+                "from": "address:aggregator_owner",
+                "contractCode": "file:../aggregator/output/aggregator.wasm",
+                "value": "0",
+                "arguments": [
+                    "str:MOAX",
+                    "1,000,000",
+                    "1000",
+                    "50",
+                    "100",
+                    "1",
+                    "str:price feed",
+                    "1"
+                ],
+                "gasLimit": "1,000,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "7-addFunds - enough for 2 rounds of oracle payments--",
+            "tx": {
+                "from": "address:aggregator_owner",
+                "to": "sc:aggregator_smart_contract",
+                "value": "6,000,000",
+                "function": "addFunds",
+                "arguments": [],
+                "gasLimit": "100,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "message": "",
+                "out": [],
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "8-availableFunds - check that the funds were added--",
+            "tx": {
+                "from": "address:aggregator_owner",
+                "to": "sc:aggregator_smart_contract",
+                "value": "0",
+                "function": "availableFunds",
+                "arguments": [],
+                "gasLimit": "100,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "message": "",
+                "out": [
+                    "6,000,000"
+                ],
+                "gas": "*",
+                "refund": "*"
+            }
+        },
+        {
+            "step": "scCall",
+            "txId": "9-changeOracles - add 3 oracles and their admins--",
+            "tx": {
+                "from": "address:aggregator_owner",
+                "to": "sc:aggregator_smart_contract",
+                "value": "0",
+                "function": "changeOracles",
+                "arguments": [
+                    "",
+                    "sc:oracle1_smart_contract|sc:oracle2_smart_contract|sc:oracle3_smart_contract",
+                    "address:oracle1_owner|address:oracle2_owner|address:oracle3_owner",
+                    "2",
+                    "3",
+                    "0"
+                ],
+                "gasLimit": "100,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "status": "0",
+                "message": "",
+                "gas": "*",
+                "refund": "*"
+            }
+        }
+    ]
+}

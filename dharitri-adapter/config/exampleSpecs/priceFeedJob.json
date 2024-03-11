@@ -1,0 +1,17 @@
+{
+  "initiators": [
+    {
+      "type": "cron",
+      "params": {
+        "schedule": "CRON_TZ=UTC */10 * * * *"
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "type": "moa-price-job",
+      "confirmations": null,
+      "params": {}
+    }
+  ]
+}
